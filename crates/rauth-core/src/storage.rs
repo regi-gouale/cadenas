@@ -1,7 +1,9 @@
 use crate::{
     account::{Account, NewAccount},
     error::Result,
+    organization::{Membership, Organization, OrganizationId, Role},
     session::{NewSession, Session},
+    totp::TotpFactor,
     user::{NewUser, User, UserId},
     verification::{NewVerification, Verification},
 };
@@ -60,4 +62,39 @@ pub trait Storage: Send + Sync + 'static {
         identifier: &str,
         purpose: &str,
     ) -> Result<Option<Verification>>;
+
+    // --- TOTP (second factor) ---
+    async fn get_totp(&self, user_id: &UserId) -> Result<Option<TotpFactor>>;
+    async fn upsert_totp(&self, user_id: &UserId, secret_b32: &str, enabled: bool) -> Result<()>;
+    async fn delete_totp(&self, user_id: &UserId) -> Result<()>;
+
+    // --- Organizations ---
+    async fn create_organization(&self, slug: &str, name: &str) -> Result<Organization>;
+    async fn find_organization_by_id(&self, id: &OrganizationId) -> Result<Option<Organization>>;
+    async fn find_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>>;
+    async fn delete_organization(&self, id: &OrganizationId) -> Result<()>;
+    async fn list_organizations_for_user(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<(Organization, Role)>>;
+
+    async fn add_member(
+        &self,
+        org_id: &OrganizationId,
+        user_id: &UserId,
+        role: Role,
+    ) -> Result<Membership>;
+    async fn update_member_role(
+        &self,
+        org_id: &OrganizationId,
+        user_id: &UserId,
+        role: Role,
+    ) -> Result<()>;
+    async fn remove_member(&self, org_id: &OrganizationId, user_id: &UserId) -> Result<()>;
+    async fn find_membership(
+        &self,
+        org_id: &OrganizationId,
+        user_id: &UserId,
+    ) -> Result<Option<Membership>>;
+    async fn list_members(&self, org_id: &OrganizationId) -> Result<Vec<Membership>>;
 }

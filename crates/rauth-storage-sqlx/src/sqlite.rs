@@ -2,8 +2,10 @@ use async_trait::async_trait;
 use rauth_core::{
     account::{Account, NewAccount},
     error::{Error, Result},
+    organization::{Membership, Organization, OrganizationId, Role},
     session::{NewSession, Session},
     storage::Storage,
+    totp::TotpFactor,
     user::{NewUser, User, UserId},
     verification::{NewVerification, Verification},
 };
@@ -58,6 +60,32 @@ CREATE TABLE IF NOT EXISTS verifications (
     created_at  TEXT NOT NULL,
     PRIMARY KEY (identifier, purpose, value_hash)
 );
+
+CREATE TABLE IF NOT EXISTS totp_factors (
+    user_id     TEXT PRIMARY KEY,
+    secret_b32  TEXT NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS organizations (
+    id          TEXT PRIMARY KEY,
+    slug        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name        TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS memberships (
+    organization_id  TEXT NOT NULL,
+    user_id          TEXT NOT NULL,
+    role             TEXT NOT NULL,
+    created_at       TEXT NOT NULL,
+    PRIMARY KEY (organization_id, user_id),
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
 "#;
 
 #[derive(Clone)]
@@ -499,6 +527,285 @@ impl Storage for SqliteStorage {
             expires_at,
             created_at: parse_dt(&created)?,
         }))
+    }
+
+    // ---------- TOTP ----------
+
+    async fn get_totp(&self, user_id: &UserId) -> Result<Option<TotpFactor>> {
+        let row: Option<(String, String, i64, String)> = sqlx::query_as(
+            r#"SELECT user_id, secret_b32, enabled, created_at
+               FROM totp_factors WHERE user_id = ?1"#,
+        )
+        .bind(user_id.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        let Some((uid, secret, enabled, created)) = row else {
+            return Ok(None);
+        };
+        Ok(Some(TotpFactor {
+            user_id: UserId(Uuid::parse_str(&uid).map_err(|e| Error::Plugin(e.to_string()))?),
+            secret_b32: secret,
+            enabled: enabled != 0,
+            created_at: parse_dt(&created)?,
+        }))
+    }
+
+    async fn upsert_totp(
+        &self,
+        user_id: &UserId,
+        secret_b32: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        let now = fmt_dt(OffsetDateTime::now_utc());
+        sqlx::query(
+            r#"INSERT INTO totp_factors (user_id, secret_b32, enabled, created_at)
+               VALUES (?1, ?2, ?3, ?4)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 secret_b32 = excluded.secret_b32,
+                 enabled    = excluded.enabled"#,
+        )
+        .bind(user_id.to_string())
+        .bind(secret_b32)
+        .bind(if enabled { 1i64 } else { 0 })
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        Ok(())
+    }
+
+    async fn delete_totp(&self, user_id: &UserId) -> Result<()> {
+        sqlx::query(r#"DELETE FROM totp_factors WHERE user_id = ?1"#)
+            .bind(user_id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(Error::storage)?;
+        Ok(())
+    }
+
+    // ---------- Organizations ----------
+
+    async fn create_organization(&self, slug: &str, name: &str) -> Result<Organization> {
+        let id = Uuid::new_v4();
+        let now = OffsetDateTime::now_utc();
+        sqlx::query(
+            r#"INSERT INTO organizations (id, slug, name, created_at) VALUES (?1, ?2, ?3, ?4)"#,
+        )
+        .bind(id.to_string())
+        .bind(slug)
+        .bind(name)
+        .bind(fmt_dt(now))
+        .execute(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        Ok(Organization {
+            id: OrganizationId(id),
+            slug: slug.to_string(),
+            name: name.to_string(),
+            created_at: now,
+        })
+    }
+
+    async fn find_organization_by_id(
+        &self,
+        id: &OrganizationId,
+    ) -> Result<Option<Organization>> {
+        let row: Option<(String, String, String, String)> = sqlx::query_as(
+            r#"SELECT id, slug, name, created_at FROM organizations WHERE id = ?1"#,
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        let Some((id, slug, name, created)) = row else {
+            return Ok(None);
+        };
+        Ok(Some(Organization {
+            id: OrganizationId(
+                Uuid::parse_str(&id).map_err(|e| Error::Plugin(e.to_string()))?,
+            ),
+            slug,
+            name,
+            created_at: parse_dt(&created)?,
+        }))
+    }
+
+    async fn find_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
+        let row: Option<(String, String, String, String)> = sqlx::query_as(
+            r#"SELECT id, slug, name, created_at FROM organizations WHERE slug = ?1"#,
+        )
+        .bind(slug)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        let Some((id, slug, name, created)) = row else {
+            return Ok(None);
+        };
+        Ok(Some(Organization {
+            id: OrganizationId(
+                Uuid::parse_str(&id).map_err(|e| Error::Plugin(e.to_string()))?,
+            ),
+            slug,
+            name,
+            created_at: parse_dt(&created)?,
+        }))
+    }
+
+    async fn delete_organization(&self, id: &OrganizationId) -> Result<()> {
+        sqlx::query(r#"DELETE FROM organizations WHERE id = ?1"#)
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(Error::storage)?;
+        Ok(())
+    }
+
+    async fn list_organizations_for_user(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<(Organization, Role)>> {
+        let rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
+            r#"SELECT o.id, o.slug, o.name, o.created_at, m.role
+               FROM organizations o
+               JOIN memberships m ON m.organization_id = o.id
+               WHERE m.user_id = ?1
+               ORDER BY o.created_at DESC"#,
+        )
+        .bind(user_id.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        let mut out = Vec::with_capacity(rows.len());
+        for (id, slug, name, created, role) in rows {
+            out.push((
+                Organization {
+                    id: OrganizationId(
+                        Uuid::parse_str(&id).map_err(|e| Error::Plugin(e.to_string()))?,
+                    ),
+                    slug,
+                    name,
+                    created_at: parse_dt(&created)?,
+                },
+                Role::from_str(&role)
+                    .ok_or_else(|| Error::Plugin(format!("invalid role: {role}")))?,
+            ));
+        }
+        Ok(out)
+    }
+
+    async fn add_member(
+        &self,
+        org_id: &OrganizationId,
+        user_id: &UserId,
+        role: Role,
+    ) -> Result<Membership> {
+        let now = OffsetDateTime::now_utc();
+        sqlx::query(
+            r#"INSERT INTO memberships (organization_id, user_id, role, created_at)
+               VALUES (?1, ?2, ?3, ?4)
+               ON CONFLICT(organization_id, user_id) DO UPDATE SET role = excluded.role"#,
+        )
+        .bind(org_id.to_string())
+        .bind(user_id.to_string())
+        .bind(role.as_str())
+        .bind(fmt_dt(now))
+        .execute(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        Ok(Membership {
+            organization_id: *org_id,
+            user_id: *user_id,
+            role,
+            created_at: now,
+        })
+    }
+
+    async fn update_member_role(
+        &self,
+        org_id: &OrganizationId,
+        user_id: &UserId,
+        role: Role,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"UPDATE memberships SET role = ?3 WHERE organization_id = ?1 AND user_id = ?2"#,
+        )
+        .bind(org_id.to_string())
+        .bind(user_id.to_string())
+        .bind(role.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        Ok(())
+    }
+
+    async fn remove_member(&self, org_id: &OrganizationId, user_id: &UserId) -> Result<()> {
+        sqlx::query(
+            r#"DELETE FROM memberships WHERE organization_id = ?1 AND user_id = ?2"#,
+        )
+        .bind(org_id.to_string())
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        Ok(())
+    }
+
+    async fn find_membership(
+        &self,
+        org_id: &OrganizationId,
+        user_id: &UserId,
+    ) -> Result<Option<Membership>> {
+        let row: Option<(String, String, String, String)> = sqlx::query_as(
+            r#"SELECT organization_id, user_id, role, created_at
+               FROM memberships WHERE organization_id = ?1 AND user_id = ?2"#,
+        )
+        .bind(org_id.to_string())
+        .bind(user_id.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        let Some((oid, uid, role, created)) = row else {
+            return Ok(None);
+        };
+        Ok(Some(Membership {
+            organization_id: OrganizationId(
+                Uuid::parse_str(&oid).map_err(|e| Error::Plugin(e.to_string()))?,
+            ),
+            user_id: UserId(
+                Uuid::parse_str(&uid).map_err(|e| Error::Plugin(e.to_string()))?,
+            ),
+            role: Role::from_str(&role)
+                .ok_or_else(|| Error::Plugin(format!("invalid role: {role}")))?,
+            created_at: parse_dt(&created)?,
+        }))
+    }
+
+    async fn list_members(&self, org_id: &OrganizationId) -> Result<Vec<Membership>> {
+        let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+            r#"SELECT organization_id, user_id, role, created_at
+               FROM memberships WHERE organization_id = ?1
+               ORDER BY created_at ASC"#,
+        )
+        .bind(org_id.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::storage)?;
+        let mut out = Vec::with_capacity(rows.len());
+        for (oid, uid, role, created) in rows {
+            out.push(Membership {
+                organization_id: OrganizationId(
+                    Uuid::parse_str(&oid).map_err(|e| Error::Plugin(e.to_string()))?,
+                ),
+                user_id: UserId(
+                    Uuid::parse_str(&uid).map_err(|e| Error::Plugin(e.to_string()))?,
+                ),
+                role: Role::from_str(&role)
+                    .ok_or_else(|| Error::Plugin(format!("invalid role: {role}")))?,
+                created_at: parse_dt(&created)?,
+            });
+        }
+        Ok(out)
     }
 }
 

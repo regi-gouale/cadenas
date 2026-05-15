@@ -1,36 +1,9 @@
-//! Organizations, teams and roles plugin (scaffold).
+//! Organizations / teams / roles plugin.
 //!
-//! Domain types are defined here; the storage trait extension and HTTP
-//! endpoints will be added in a follow-up.
+//! Domain types live in `rauth_core::organization` and are re-exported here.
+//! This crate adds an Axum router and small business-logic helpers.
 
-use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
-use uuid::Uuid;
+pub use rauth_core::organization::{Membership, Organization, OrganizationId, Role};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(transparent)]
-pub struct OrganizationId(pub Uuid);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Organization {
-    pub id: OrganizationId,
-    pub slug: String,
-    pub name: String,
-    pub created_at: OffsetDateTime,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Role {
-    Owner,
-    Admin,
-    Member,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Membership {
-    pub organization_id: OrganizationId,
-    pub user_id: rauth_core::user::UserId,
-    pub role: Role,
-    pub created_at: OffsetDateTime,
-}
+#[cfg(feature = "axum")]
+pub mod axum_router;

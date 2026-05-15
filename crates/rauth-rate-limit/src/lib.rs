@@ -10,6 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "axum")]
+pub mod axum_layer;
+
 #[async_trait]
 pub trait RateLimiter: Send + Sync + 'static {
     /// Returns `true` if the request is allowed, `false` if it should be denied.

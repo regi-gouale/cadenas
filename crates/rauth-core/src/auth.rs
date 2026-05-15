@@ -11,9 +11,11 @@ use crate::{
     storage::Storage,
     time_provider::{Clock, SharedClock, SystemClock},
     token::{hash_token, random_token},
-    user::{NewUser, User},
+    totp_codes,
+    user::{NewUser, User, UserId},
     verification::NewVerification,
 };
+use time::Duration;
 
 /// High-level orchestrator. Cheap to clone — internally just `Arc`s.
 #[derive(Clone)]
@@ -123,7 +125,7 @@ impl Auth {
         password: &str,
         ip: Option<String>,
         ua: Option<String>,
-    ) -> Result<(User, IssuedSession)> {
+    ) -> Result<SignInResult> {
         let email = normalize_email(email);
         for p in &self.inner.plugins {
             p.before_sign_in(&email).await?;
@@ -146,14 +148,37 @@ impl Auth {
             .find_account_by_user(&user.id, "credentials")
             .await?
             .ok_or(Error::InvalidCredentials)?;
-        let hash = account.password_hash.as_deref().ok_or(Error::InvalidCredentials)?;
+        let hash = account
+            .password_hash
+            .as_deref()
+            .ok_or(Error::InvalidCredentials)?;
 
         if !self.inner.hasher.verify(password, hash)? {
             return Err(Error::InvalidCredentials);
         }
 
+        // If TOTP is enabled, hold off issuing a session and return a challenge.
+        if let Some(factor) = self.inner.storage.get_totp(&user.id).await? {
+            if factor.enabled {
+                let challenge_token = random_token(32);
+                self.inner
+                    .storage
+                    .create_verification(NewVerification {
+                        identifier: user.id.to_string(),
+                        purpose: TOTP_CHALLENGE_PURPOSE.into(),
+                        value_hash: hash_token(&challenge_token),
+                        expires_at: self.inner.clock.now() + Duration::minutes(5),
+                    })
+                    .await?;
+                return Ok(SignInResult::TotpRequired {
+                    challenge_token,
+                    user_id: user.id,
+                });
+            }
+        }
+
         let issued = self.create_session(&user, ip, ua).await?;
-        Ok((user, issued))
+        Ok(SignInResult::Authenticated { user, session: issued })
     }
 
     // --------- Session lifecycle ---------
@@ -345,6 +370,136 @@ impl Auth {
 
 pub const EMAIL_VERIFY_PURPOSE: &str = "email_verify";
 pub const PASSWORD_RESET_PURPOSE: &str = "password_reset";
+pub const TOTP_CHALLENGE_PURPOSE: &str = "totp_challenge";
+
+/// Result of [`Auth::sign_in_email`].
+#[derive(Debug)]
+pub enum SignInResult {
+    Authenticated {
+        user: User,
+        session: IssuedSession,
+    },
+    /// User has TOTP enabled — client must POST the OTP plus this challenge
+    /// token to `/totp/challenge`.
+    TotpRequired {
+        challenge_token: String,
+        user_id: UserId,
+    },
+}
+
+impl Auth {
+    /// Generate a fresh TOTP secret for the user (does not enable it yet).
+    /// Returns `(secret_base32, otpauth_uri)`.
+    pub async fn enroll_totp(&self, user: &User, issuer: &str) -> Result<(String, String)> {
+        let secret = generate_totp_secret_b32();
+        self.inner
+            .storage
+            .upsert_totp(&user.id, &secret, false)
+            .await?;
+        let uri = totp_provisioning_uri(issuer, &user.email, &secret);
+        Ok((secret, uri))
+    }
+
+    /// Verify a TOTP code and mark the factor as enabled. Idempotent.
+    pub async fn confirm_totp(&self, user: &User, code: &str) -> Result<()> {
+        let factor = self
+            .inner
+            .storage
+            .get_totp(&user.id)
+            .await?
+            .ok_or_else(|| Error::bad_request("no pending totp enrolment"))?;
+        let now = self.inner.clock.now().unix_timestamp().max(0) as u64;
+        if !totp_codes::verify(&factor.secret_b32, code, now) {
+            return Err(Error::bad_request("invalid totp code"));
+        }
+        self.inner
+            .storage
+            .upsert_totp(&user.id, &factor.secret_b32, true)
+            .await
+    }
+
+    /// Disable TOTP after verifying a current code.
+    pub async fn disable_totp(&self, user: &User, code: &str) -> Result<()> {
+        let factor = self
+            .inner
+            .storage
+            .get_totp(&user.id)
+            .await?
+            .ok_or_else(|| Error::bad_request("no totp factor"))?;
+        let now = self.inner.clock.now().unix_timestamp().max(0) as u64;
+        if !totp_codes::verify(&factor.secret_b32, code, now) {
+            return Err(Error::bad_request("invalid totp code"));
+        }
+        self.inner.storage.delete_totp(&user.id).await
+    }
+
+    /// Complete a sign-in that was paused on TOTP. Returns a fresh session.
+    pub async fn complete_totp_challenge(
+        &self,
+        challenge_token: &str,
+        code: &str,
+        ip: Option<String>,
+        ua: Option<String>,
+    ) -> Result<(User, IssuedSession)> {
+        let value_hash = hash_token(challenge_token);
+        let v = self
+            .inner
+            .storage
+            .consume_verification_by_value(TOTP_CHALLENGE_PURPOSE, &value_hash)
+            .await?
+            .ok_or(Error::InvalidVerification)?;
+        let user_id = UserId(
+            uuid::Uuid::parse_str(&v.identifier).map_err(|e| Error::Plugin(e.to_string()))?,
+        );
+        let user = self
+            .inner
+            .storage
+            .find_user_by_id(&user_id)
+            .await?
+            .ok_or(Error::InvalidVerification)?;
+        let factor = self
+            .inner
+            .storage
+            .get_totp(&user.id)
+            .await?
+            .ok_or(Error::InvalidVerification)?;
+        if !factor.enabled {
+            return Err(Error::InvalidVerification);
+        }
+        let now = self.inner.clock.now().unix_timestamp().max(0) as u64;
+        if !totp_codes::verify(&factor.secret_b32, code, now) {
+            return Err(Error::bad_request("invalid totp code"));
+        }
+        let issued = self.create_session(&user, ip, ua).await?;
+        Ok((user, issued))
+    }
+}
+
+fn generate_totp_secret_b32() -> String {
+    use rand::RngCore;
+    let mut buf = [0u8; 20];
+    rand::thread_rng().fill_bytes(&mut buf);
+    base32::encode(base32::Alphabet::Rfc4648 { padding: false }, &buf)
+}
+
+fn totp_provisioning_uri(issuer: &str, account: &str, secret_b32: &str) -> String {
+    let label = url_encode(&format!("{issuer}:{account}"));
+    let issuer_q = url_encode(issuer);
+    format!("otpauth://totp/{label}?secret={secret_b32}&issuer={issuer_q}&digits=6&period=30")
+}
+
+fn url_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
 
 fn normalize_email(email: &str) -> String {
     email.trim().to_lowercase()

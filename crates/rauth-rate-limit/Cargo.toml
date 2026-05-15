@@ -13,3 +13,11 @@ rauth-core.workspace = true
 async-trait.workspace = true
 time.workspace = true
 tokio = { workspace = true }
+http = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+rauth-axum = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[features]
+default = ["axum"]
+axum = ["dep:axum", "dep:rauth-axum", "dep:http", "dep:serde_json"]

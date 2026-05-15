@@ -18,6 +18,7 @@ use axum::{
     Json, Router,
 };
 use rauth_core::{
+    auth::SignInResult,
     error::Error,
     session::{IssuedSession, Session},
     user::User,
@@ -100,15 +101,32 @@ async fn sign_in_email(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    let (user, issued) = auth.sign_in_email(&body.email, &body.password, ip, ua).await?;
+    let result = auth
+        .sign_in_email(&body.email, &body.password, ip, ua)
+        .await?;
 
-    let cookie = build_cookie(&auth, &issued);
-    let body = Json(SignInResponse {
-        user: UserDto::from(&user),
-        session: &issued,
-    });
-
-    Ok(([(header::SET_COOKIE, cookie)], body).into_response())
+    match result {
+        SignInResult::Authenticated { user, session: issued } => {
+            let cookie = build_cookie(&auth, &issued);
+            let body = Json(SignInResponse {
+                user: UserDto::from(&user),
+                session: &issued,
+            });
+            Ok(([(header::SET_COOKIE, cookie)], body).into_response())
+        }
+        SignInResult::TotpRequired {
+            challenge_token,
+            user_id,
+        } => Ok((
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({
+                "totp_required": true,
+                "challenge_token": challenge_token,
+                "user_id": user_id.to_string(),
+            })),
+        )
+            .into_response()),
+    }
 }
 
 async fn sign_out(
@@ -200,7 +218,7 @@ impl FromRequestParts<Auth> for AuthSession {
 
 // ----------- helpers -----------
 
-fn extract_token(auth: &Auth, headers: &axum::http::HeaderMap) -> Option<String> {
+pub fn extract_token(auth: &Auth, headers: &axum::http::HeaderMap) -> Option<String> {
     if let Some(h) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         if let Some(rest) = h.strip_prefix("Bearer ") {
             return Some(rest.trim().to_string());
@@ -219,7 +237,7 @@ fn extract_token(auth: &Auth, headers: &axum::http::HeaderMap) -> Option<String>
         })
 }
 
-fn client_ip(headers: &axum::http::HeaderMap, trust_proxy: bool) -> Option<String> {
+pub fn client_ip(headers: &axum::http::HeaderMap, trust_proxy: bool) -> Option<String> {
     if trust_proxy {
         if let Some(v) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
             if let Some(first) = v.split(',').next() {
@@ -230,7 +248,7 @@ fn client_ip(headers: &axum::http::HeaderMap, trust_proxy: bool) -> Option<Strin
     None
 }
 
-fn build_cookie(auth: &Auth, issued: &IssuedSession) -> String {
+pub fn build_cookie(auth: &Auth, issued: &IssuedSession) -> String {
     let max_age = (issued.expires_at - auth.clock().now()).whole_seconds().max(0);
     format!(
         "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
@@ -240,7 +258,7 @@ fn build_cookie(auth: &Auth, issued: &IssuedSession) -> String {
     )
 }
 
-fn clear_cookie(auth: &Auth) -> String {
+pub fn clear_cookie(auth: &Auth) -> String {
     format!(
         "{}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
         auth.config().session_cookie_name

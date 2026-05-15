@@ -106,6 +106,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tower 0.5.3",
@@ -1442,6 +1443,7 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "async-trait",
+ "base32",
  "base64 0.22.1",
  "futures",
  "hex",
@@ -1450,6 +1452,7 @@ dependencies = [
  "rand_core 0.6.4",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "subtle",
  "thiserror 1.0.69",
@@ -1476,10 +1479,16 @@ name = "rauth-oauth"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "http",
+ "rand 0.8.6",
+ "rauth-axum",
  "rauth-core",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "time",
  "tracing",
  "url",
@@ -1490,8 +1499,12 @@ name = "rauth-organizations"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
+ "http",
+ "rauth-axum",
  "rauth-core",
  "serde",
+ "serde_json",
  "time",
  "uuid",
 ]
@@ -1501,7 +1514,11 @@ name = "rauth-rate-limit"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
+ "http",
+ "rauth-axum",
  "rauth-core",
+ "serde_json",
  "time",
  "tokio",
 ]
@@ -1525,11 +1542,15 @@ name = "rauth-totp"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "base32",
  "hmac",
+ "http",
  "rand 0.8.6",
+ "rauth-axum",
  "rauth-core",
  "serde",
+ "serde_json",
  "sha1",
  "subtle",
  "time",

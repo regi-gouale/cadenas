@@ -5,7 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-rauth = { workspace = true, features = ["axum", "sqlite"] }
+rauth = { workspace = true, features = ["axum", "sqlite", "oauth", "totp", "organizations", "rate-limit"] }
 axum.workspace = true
 tokio = { workspace = true, features = ["full"] }
 sqlx = { workspace = true, features = ["sqlite"] }
