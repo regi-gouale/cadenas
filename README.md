@@ -7,7 +7,7 @@ toolkit: email + password, OAuth, 2FA, organizations, sessions, plugins.
 > Status: **early but usable**. Email/password, sessions, email verification,
 > password reset, OAuth (Google + GitHub with PKCE), TOTP 2FA, organizations
 > and a token-bucket rate limiter are all implemented behind a single Axum
-> router. SQLite is the default adapter; Postgres / MySQL are stubbed behind
+> router. SQLite is the default adapter; Postgres / MySQL are available behind
 > Cargo features.
 
 ## Workspace layout
@@ -15,7 +15,7 @@ toolkit: email + password, OAuth, 2FA, organizations, sessions, plugins.
 ```
 crates/
   rauth-core/           Core types, traits, sessions, password hashing, TOTP algo
-  rauth-storage-sqlx/   SQLx adapter (SQLite today; Postgres / MySQL behind features)
+  rauth-storage-sqlx/   SQLx adapter (SQLite, Postgres, MySQL)
   rauth-axum/           Axum HTTP adapter — `auth.handler` equivalent
   rauth-oauth/          OAuth2 / OIDC plugin (Google, GitHub, generic) + Axum router
   rauth-totp/           TOTP 2FA enrolment / challenge endpoints
@@ -58,51 +58,51 @@ Mounted under whatever prefix you choose (the example uses `/api/auth`).
 
 #### Email + password (always on)
 
-| Method | Path                       | Body                                                           |
-| ------ | -------------------------- | -------------------------------------------------------------- |
-| POST   | `/sign-up/email`           | `{ email, password, name? }`                                   |
-| POST   | `/sign-in/email`           | `{ email, password }` — returns session **or** TOTP challenge  |
-| POST   | `/sign-out`                | —                                                              |
-| GET    | `/session`                 | —                                                              |
-| POST   | `/verify-email/request`    | `{ email }`                                                    |
-| POST   | `/verify-email`            | `{ token }`                                                    |
-| POST   | `/password-reset/request`  | `{ email }`                                                    |
-| POST   | `/password-reset`          | `{ token, new_password }`                                      |
+| Method | Path                      | Body                                                          |
+| ------ | ------------------------- | ------------------------------------------------------------- |
+| POST   | `/sign-up/email`          | `{ email, password, name? }`                                  |
+| POST   | `/sign-in/email`          | `{ email, password }` — returns session **or** TOTP challenge |
+| POST   | `/sign-out`               | —                                                             |
+| GET    | `/session`                | —                                                             |
+| POST   | `/verify-email/request`   | `{ email }`                                                   |
+| POST   | `/verify-email`           | `{ token }`                                                   |
+| POST   | `/password-reset/request` | `{ email }`                                                   |
+| POST   | `/password-reset`         | `{ token, new_password }`                                     |
 
 When the user has TOTP enabled, `/sign-in/email` responds `202 Accepted` with
 `{ totp_required: true, challenge_token, user_id }` instead of issuing a session.
 
 #### TOTP (`rauth_totp::axum_router::router`)
 
-| Method | Path         | Auth | Body                            |
-| ------ | ------------ | ---- | ------------------------------- |
-| POST   | `/setup`     | yes  | —                               |
-| POST   | `/confirm`   | yes  | `{ code }`                      |
-| POST   | `/disable`   | yes  | `{ code }`                      |
-| POST   | `/challenge` | no   | `{ challenge_token, code }`     |
+| Method | Path         | Auth | Body                        |
+| ------ | ------------ | ---- | --------------------------- |
+| POST   | `/setup`     | yes  | —                           |
+| POST   | `/confirm`   | yes  | `{ code }`                  |
+| POST   | `/disable`   | yes  | `{ code }`                  |
+| POST   | `/challenge` | no   | `{ challenge_token, code }` |
 
 #### OAuth (`rauth_oauth::axum_router::router`)
 
-| Method | Path                    | Description                                     |
-| ------ | ----------------------- | ----------------------------------------------- |
-| GET    | `/{provider}/start`     | Redirects to the provider authorize URL (PKCE)  |
-| GET    | `/{provider}/callback`  | Exchanges code, links account, sets session     |
+| Method | Path                   | Description                                    |
+| ------ | ---------------------- | ---------------------------------------------- |
+| GET    | `/{provider}/start`    | Redirects to the provider authorize URL (PKCE) |
+| GET    | `/{provider}/callback` | Exchanges code, links account, sets session    |
 
 Built-in providers: `OAuthProvider::google(...)`, `OAuthProvider::github(...)`.
 Generic providers can be constructed by filling `OAuthProvider` directly.
 
 #### Organizations (`rauth_organizations::axum_router::router`)
 
-| Method  | Path                            | Auth | Notes                              |
-| ------- | ------------------------------- | ---- | ---------------------------------- |
-| POST    | `/`                             | yes  | Caller becomes Owner               |
-| GET     | `/`                             | yes  | Lists caller's orgs + role         |
-| GET     | `/{id}`                         | yes  | Member only                        |
-| DELETE  | `/{id}`                         | yes  | Owner only                         |
-| GET     | `/{id}/members`                 | yes  | Member only                        |
-| POST    | `/{id}/members`                 | yes  | Admin/Owner; cannot grant >self    |
-| PATCH   | `/{id}/members/{user_id}`       | yes  | Admin/Owner; cannot grant >self    |
-| DELETE  | `/{id}/members/{user_id}`       | yes  | Admin/Owner; member can leave self |
+| Method | Path                      | Auth | Notes                              |
+| ------ | ------------------------- | ---- | ---------------------------------- |
+| POST   | `/`                       | yes  | Caller becomes Owner               |
+| GET    | `/`                       | yes  | Lists caller's orgs + role         |
+| GET    | `/{id}`                   | yes  | Member only                        |
+| DELETE | `/{id}`                   | yes  | Owner only                         |
+| GET    | `/{id}/members`           | yes  | Member only                        |
+| POST   | `/{id}/members`           | yes  | Admin/Owner; cannot grant >self    |
+| PATCH  | `/{id}/members/{user_id}` | yes  | Admin/Owner; cannot grant >self    |
+| DELETE | `/{id}/members/{user_id}` | yes  | Admin/Owner; member can leave self |
 
 #### Rate limiting (`rauth_rate_limit::axum_layer::limit`)
 
@@ -132,7 +132,7 @@ In your own Axum handlers, extract the session with `rauth::axum::AuthSession`.
 - [x] Organizations, teams, roles
 - [x] Rate-limit middleware
 - [ ] Magic link / OTP email
-- [ ] Postgres + MySQL adapters (the SQLx adapter is wired but only SQLite is implemented)
+- [x] Postgres + MySQL adapters
 - [ ] Passkeys / WebAuthn
 
 ## License
