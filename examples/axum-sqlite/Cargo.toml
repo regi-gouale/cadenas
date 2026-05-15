@@ -1,0 +1,13 @@
+[package]
+name = "rauth-example-axum-sqlite"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+rauth = { workspace = true, features = ["axum", "sqlite"] }
+axum.workspace = true
+tokio = { workspace = true, features = ["full"] }
+sqlx = { workspace = true, features = ["sqlite"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

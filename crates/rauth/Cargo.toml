@@ -1,0 +1,30 @@
+[package]
+name = "rauth"
+description = "Better-auth-style authentication for Rust. Umbrella crate re-exporting all rauth modules."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rauth-core.workspace = true
+rauth-storage-sqlx = { workspace = true, optional = true }
+rauth-axum = { workspace = true, optional = true }
+rauth-oauth = { workspace = true, optional = true }
+rauth-totp = { workspace = true, optional = true }
+rauth-organizations = { workspace = true, optional = true }
+rauth-rate-limit = { workspace = true, optional = true }
+
+[features]
+default = ["axum", "sqlite"]
+axum = ["dep:rauth-axum"]
+sqlite = ["dep:rauth-storage-sqlx", "rauth-storage-sqlx/sqlite"]
+postgres = ["dep:rauth-storage-sqlx", "rauth-storage-sqlx/postgres"]
+mysql = ["dep:rauth-storage-sqlx", "rauth-storage-sqlx/mysql"]
+oauth = ["dep:rauth-oauth"]
+totp = ["dep:rauth-totp"]
+organizations = ["dep:rauth-organizations"]
+rate-limit = ["dep:rauth-rate-limit"]
+full = ["axum", "sqlite", "oauth", "totp", "organizations", "rate-limit"]

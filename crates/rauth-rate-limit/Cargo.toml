@@ -1,0 +1,15 @@
+[package]
+name = "rauth-rate-limit"
+description = "Rate limiting middleware and stores for rauth."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rauth-core.workspace = true
+async-trait.workspace = true
+time.workspace = true
+tokio = { workspace = true }
