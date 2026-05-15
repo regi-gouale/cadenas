@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rauth — full app demo</title>
+    <style>
+      :root {
+        --bg: #0b0d12;
+        --fg: #e6e8ee;
+        --muted: #8a93a6;
+        --accent: #7c9cff;
+        --card: #141822;
+        --border: #232938;
+        --danger: #ff6b6b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          15px/1.5 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "SF Pro Text",
+          "Segoe UI",
+          sans-serif;
+      }
+      header {
+        padding: 18px 28px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 18px;
+        letter-spacing: 0.2px;
+      }
+      main {
+        max-width: 720px;
+        margin: 32px auto;
+        padding: 0 24px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 22px;
+        margin-bottom: 18px;
+      }
+      h2 {
+        margin: 0 0 14px 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      label {
+        display: block;
+        margin: 10px 0 4px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      input,
+      textarea {
+        width: 100%;
+        background: #0e1119;
+        color: var(--fg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        font: inherit;
+      }
+      input:focus,
+      textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      button {
+        background: var(--accent);
+        color: #0b0d12;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 16px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.ghost {
+        background: transparent;
+        color: var(--fg);
+        border: 1px solid var(--border);
+      }
+      button.danger {
+        background: var(--danger);
+        color: #fff;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .grow {
+        flex: 1;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .err {
+        color: var(--danger);
+        font-size: 13px;
+        min-height: 18px;
+      }
+      .ok {
+        color: #5dd39e;
+        font-size: 13px;
+        min-height: 18px;
+      }
+      ul.notes {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      ul.notes li {
+        display: flex;
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      ul.notes li:last-child {
+        border-bottom: 0;
+      }
+      pre.qr {
+        background: #0e1119;
+        padding: 12px;
+        border-radius: 8px;
+        overflow-x: auto;
+        font-size: 12px;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .tabs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+      .tabs button {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      .tabs button.active {
+        color: var(--fg);
+        border-color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>rauth — full app demo</h1>
+      <div id="who" class="muted"></div>
+    </header>
+    <main>
+      <!-- AUTH -->
+      <section id="auth-card" class="card">
+        <div class="tabs">
+          <button id="tab-signin" class="active">Sign in</button>
+          <button id="tab-signup">Sign up</button>
+        </div>
+
+        <form id="signin-form">
+          <label>Email</label>
+          <input type="email" name="email" required />
+          <label>Password</label>
+          <input type="password" name="password" required />
+          <div style="margin-top: 14px">
+            <button type="submit">Sign in</button>
+          </div>
+          <div class="err" id="signin-err"></div>
+        </form>
+
+        <form id="signup-form" class="hidden">
+          <label>Name</label>
+          <input type="text" name="name" />
+          <label>Email</label>
+          <input type="email" name="email" required />
+          <label>Password</label>
+          <input type="password" name="password" required minlength="8" />
+          <div style="margin-top: 14px">
+            <button type="submit">Create account</button>
+          </div>
+          <div class="err" id="signup-err"></div>
+        </form>
+
+        <form id="totp-form" class="hidden">
+          <p class="muted">
+            Two-factor required. Enter the 6-digit code from your authenticator
+            app.
+          </p>
+          <label>Code</label>
+          <input type="text" name="code" required pattern="\d{6}" />
+          <div style="margin-top: 14px">
+            <button type="submit">Verify</button>
+          </div>
+          <div class="err" id="totp-err"></div>
+        </form>
+      </section>
+
+      <!-- DASHBOARD -->
+      <section id="dash" class="hidden">
+        <div class="card">
+          <h2>Notes</h2>
+          <form id="note-form" class="row">
+            <input id="note-input" class="grow" placeholder="Write a note…" />
+            <button type="submit">Add</button>
+          </form>
+          <ul id="notes" class="notes" style="margin-top: 14px"></ul>
+        </div>
+
+        <div class="card">
+          <h2>Two-factor authentication</h2>
+          <p class="muted" id="totp-status">Loading…</p>
+          <div id="totp-enroll" class="hidden">
+            <pre class="qr" id="totp-uri"></pre>
+            <p class="muted">
+              Add the URI above to your authenticator (Google Authenticator,
+              1Password, …) then enter the code:
+            </p>
+            <form id="totp-confirm-form" class="row">
+              <input
+                id="totp-confirm-code"
+                class="grow"
+                placeholder="123456"
+                pattern="\d{6}" />
+              <button type="submit">Confirm</button>
+            </form>
+          </div>
+          <div class="row" style="margin-top: 10px">
+            <button id="totp-setup-btn">Enroll TOTP</button>
+            <button id="totp-disable-btn" class="ghost hidden">Disable</button>
+          </div>
+          <div class="err" id="totp-msg"></div>
+        </div>
+
+        <div class="card">
+          <h2>Session</h2>
+          <button id="signout" class="ghost">Sign out</button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const $ = (s) => document.querySelector(s);
+      const api = (path, opts = {}) =>
+        fetch("/api/auth" + path, {
+          ...opts,
+          headers: {
+            "Content-Type": "application/json",
+            ...(opts.headers || {}),
+          },
+          credentials: "same-origin",
+        });
+      const apiNotes = (path = "", opts = {}) =>
+        fetch("/api/notes" + path, {
+          ...opts,
+          headers: {
+            "Content-Type": "application/json",
+            ...(opts.headers || {}),
+          },
+          credentials: "same-origin",
+        });
+
+      let pendingChallenge = null;
+
+      // ---------- tabs ----------
+      $("#tab-signin").onclick = () => switchTab("signin");
+      $("#tab-signup").onclick = () => switchTab("signup");
+      function switchTab(which) {
+        $("#tab-signin").classList.toggle("active", which === "signin");
+        $("#tab-signup").classList.toggle("active", which === "signup");
+        $("#signin-form").classList.toggle("hidden", which !== "signin");
+        $("#signup-form").classList.toggle("hidden", which !== "signup");
+        $("#totp-form").classList.add("hidden");
+      }
+
+      // ---------- sign up ----------
+      $("#signup-form").onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const r = await api("/sign-up/email", {
+          method: "POST",
+          body: JSON.stringify({
+            name: f.get("name") || null,
+            email: f.get("email"),
+            password: f.get("password"),
+          }),
+        });
+        if (!r.ok) {
+          $("#signup-err").textContent = (await r.json()).message || "error";
+          return;
+        }
+        $("#signup-err").textContent = "";
+        switchTab("signin");
+      };
+
+      // ---------- sign in ----------
+      $("#signin-form").onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const r = await api("/sign-in/email", {
+          method: "POST",
+          body: JSON.stringify({
+            email: f.get("email"),
+            password: f.get("password"),
+          }),
+        });
+        if (r.status === 202) {
+          const body = await r.json();
+          pendingChallenge = body.challenge_token;
+          $("#signin-form").classList.add("hidden");
+          $("#signup-form").classList.add("hidden");
+          $("#totp-form").classList.remove("hidden");
+          return;
+        }
+        if (!r.ok) {
+          $("#signin-err").textContent = (await r.json()).message || "error";
+          return;
+        }
+        await refresh();
+      };
+
+      // ---------- TOTP challenge ----------
+      $("#totp-form").onsubmit = async (e) => {
+        e.preventDefault();
+        const code = new FormData(e.target).get("code");
+        const r = await fetch("/api/auth/totp/challenge", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ challenge_token: pendingChallenge, code }),
+        });
+        if (!r.ok) {
+          $("#totp-err").textContent = (await r.json()).message || "error";
+          return;
+        }
+        pendingChallenge = null;
+        await refresh();
+      };
+
+      // ---------- session refresh ----------
+      async function refresh() {
+        const r = await api("/session");
+        if (r.status !== 200) {
+          $("#auth-card").classList.remove("hidden");
+          $("#dash").classList.add("hidden");
+          $("#who").textContent = "";
+          return;
+        }
+        const data = await r.json();
+        $("#who").textContent = data.email;
+        $("#auth-card").classList.add("hidden");
+        $("#dash").classList.remove("hidden");
+        await loadNotes();
+        await loadTotpStatus();
+      }
+
+      // ---------- sign out ----------
+      $("#signout").onclick = async () => {
+        await api("/sign-out", { method: "POST" });
+        await refresh();
+      };
+
+      // ---------- notes ----------
+      async function loadNotes() {
+        const r = await apiNotes("/");
+        if (!r.ok) return;
+        const list = await r.json();
+        const ul = $("#notes");
+        ul.innerHTML = "";
+        for (const n of list) {
+          const li = document.createElement("li");
+          li.innerHTML = `<span class="grow"></span><button class="ghost">×</button>`;
+          li.firstElementChild.textContent = n.content;
+          li.lastElementChild.onclick = async () => {
+            await apiNotes("/" + encodeURIComponent(n.id), {
+              method: "DELETE",
+            });
+            await loadNotes();
+          };
+          ul.appendChild(li);
+        }
+      }
+      $("#note-form").onsubmit = async (e) => {
+        e.preventDefault();
+        const v = $("#note-input").value.trim();
+        if (!v) return;
+        await apiNotes("/", {
+          method: "POST",
+          body: JSON.stringify({ content: v }),
+        });
+        $("#note-input").value = "";
+        await loadNotes();
+      };
+
+      // ---------- TOTP enrolment ----------
+      async function loadTotpStatus() {
+        const r = await api("/session");
+        if (!r.ok) return;
+        $("#totp-msg").textContent = "";
+        $("#totp-enroll").classList.add("hidden");
+        $("#totp-status").textContent =
+          "Use POST /api/auth/totp/setup to start enrolment.";
+      }
+      $("#totp-setup-btn").onclick = async () => {
+        const r = await fetch("/api/auth/totp/setup", {
+          method: "POST",
+          credentials: "same-origin",
+        });
+        if (!r.ok) {
+          $("#totp-msg").textContent = (await r.json()).message || "error";
+          return;
+        }
+        const { secret, otpauth_uri } = await r.json();
+        $("#totp-status").textContent = "Pending enrolment — secret: " + secret;
+        $("#totp-uri").textContent = otpauth_uri;
+        $("#totp-enroll").classList.remove("hidden");
+      };
+      $("#totp-confirm-form").onsubmit = async (e) => {
+        e.preventDefault();
+        const code = $("#totp-confirm-code").value;
+        const r = await fetch("/api/auth/totp/confirm", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        if (!r.ok) {
+          $("#totp-msg").textContent = (await r.json()).message || "error";
+          return;
+        }
+        $("#totp-msg").textContent = "";
+        $("#totp-status").textContent =
+          "TOTP enabled. Sign in will require it.";
+        $("#totp-enroll").classList.add("hidden");
+      };
+
+      refresh();
+    </script>
+  </body>
+</html>

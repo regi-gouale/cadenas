@@ -11,7 +11,7 @@
 
 use axum::{
     async_trait,
-    extract::{FromRequestParts, State},
+    extract::{FromRef, FromRequestParts, State},
     http::{header, request::Parts, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -206,11 +206,16 @@ pub struct AuthSession {
 }
 
 #[async_trait]
-impl FromRequestParts<Auth> for AuthSession {
+impl<S> FromRequestParts<S> for AuthSession
+where
+    S: Send + Sync,
+    Auth: FromRef<S>,
+{
     type Rejection = ApiError;
 
-    async fn from_request_parts(parts: &mut Parts, auth: &Auth) -> Result<Self, Self::Rejection> {
-        let token = extract_token(auth, &parts.headers).ok_or(ApiError(Error::Unauthorized))?;
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let auth = Auth::from_ref(state);
+        let token = extract_token(&auth, &parts.headers).ok_or(ApiError(Error::Unauthorized))?;
         let (user, session) = auth.validate_session(&token).await?;
         Ok(Self { user, session })
     }

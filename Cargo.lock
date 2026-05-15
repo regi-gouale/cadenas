@@ -1475,6 +1475,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rauth-example-full-app"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "rauth",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "rauth-oauth"
 version = "0.1.0"
 dependencies = [

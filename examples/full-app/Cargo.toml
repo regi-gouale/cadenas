@@ -1,0 +1,22 @@
+[package]
+name = "rauth-example-full-app"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "rauth-full-app"
+path = "src/main.rs"
+
+[dependencies]
+rauth = { workspace = true, features = ["axum", "sqlite", "oauth", "totp", "organizations", "rate-limit"] }
+axum.workspace = true
+tokio = { workspace = true, features = ["full"] }
+sqlx = { workspace = true, features = ["sqlite"] }
+serde.workspace = true
+serde_json.workspace = true
+tower-http = { workspace = true, features = ["trace"] }
+time.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
