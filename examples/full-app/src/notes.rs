@@ -12,6 +12,7 @@ use rauth::axum::{ApiError, AuthSession};
 use rauth::Auth;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
+use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -93,7 +94,9 @@ async fn create(
         return Err(ApiError(rauth::Error::bad_request("content is required")));
     }
     let id = Uuid::new_v4().to_string();
-    let created_at = OffsetDateTime::now_utc().to_string();
+    let created_at = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|e| ApiError(rauth::Error::storage(e)))?;
     sqlx::query(
         r#"INSERT INTO notes (id, user_id, content, created_at) VALUES (?1, ?2, ?3, ?4)"#,
     )
